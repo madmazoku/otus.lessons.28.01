@@ -97,7 +97,7 @@ int main(int argc, char** argv)
                     ++count;
                 }
                 if(count == 1)
-                    pipe.put(kvc);
+                    pipe.put(KeyValue(kvc._value, kvc._key));
 
             })
         );
