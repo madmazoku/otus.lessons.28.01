@@ -10,15 +10,24 @@ struct FileRange {
     size_t _start;
     size_t _end;
 
+    FileRange() : _file_name(""), _start(0), _end(0) {}
     FileRange(const std::string& file_name, size_t start, size_t end) : _file_name(file_name), _start(start), _end(end) {}
     FileRange(const FileRange& fr) : _file_name(fr._file_name), _start(fr._start), _end(fr._end) {}
+
+    FileRange& operator=(const FileRange& fr)
+    {
+        _file_name = fr._file_name;
+        _start = fr._start;
+        _end = fr._end;
+    }
 };
 
 using FileRanges = std::vector<FileRange>;
 
-FileRanges split_file(const std::string& file_name, size_t N) {
+FileRanges split_file(const std::string& file_name, size_t N)
+{
     std::ifstream in(file_name, std::ifstream::ate | std::ifstream::binary);
-    size_t file_size = in.tellg(); 
+    size_t file_size = in.tellg();
 
     FileRanges frs;
     size_t n = N + 1;

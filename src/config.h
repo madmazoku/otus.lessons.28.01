@@ -3,7 +3,8 @@
 #include <boost/property_tree/ptree.hpp>
 #include <boost/property_tree/json_parser.hpp>
 
-class Config {
+class Config
+{
 private:
 
 public:
@@ -18,7 +19,8 @@ public:
     size_t _reducers;
     size_t _pipe_size;
 
-    Config(const char* file_name) {
+    Config(const char* file_name)
+    {
         boost::property_tree::ptree root;
         boost::property_tree::read_json(file_name, root);
 

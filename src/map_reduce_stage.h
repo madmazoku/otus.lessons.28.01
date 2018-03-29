@@ -14,7 +14,8 @@ using IKVPipePtr = std::unique_ptr<KVPipe>;
 using IKVPipePtrs = std::vector<IKVPipePtr>;
 using Threads = std::vector<std::thread>;
 
-IMapReducePtr get_mr(const std::string& type) {
+IMapReducePtr get_mr(const std::string& type)
+{
     if(type == "MR_count")
         return std::make_unique<MR_count>();
     else if(type == "MR_uniq_shorts")
@@ -25,7 +26,8 @@ IMapReducePtr get_mr(const std::string& type) {
         return nullptr;
 }
 
-void map_reduce_stage(const Config& config, size_t stage = 0) {
+void map_reduce_stage(const Config& config, size_t stage = 0)
+{
     std::string type = config._stages[stage].get<std::string>("type");
     IMapReducePtr mr = get_mr(type);
     if(mr == nullptr)
@@ -66,63 +68,65 @@ void map_reduce_stage(const Config& config, size_t stage = 0) {
 
     for(auto fr : frs) {
         mappers.push_back(
-            std::thread([fr, &mr, &src, &config, &pipes]() {
-                std::ifstream in(src, std::ifstream::binary);
-                in.seekg(fr._start);
+        std::thread([fr, &mr, &src, &config, &pipes]() {
+            std::ifstream in(src, std::ifstream::binary);
+            in.seekg(fr._start);
 
-                std::string line;
-                std::hash<std::string> hash_fn;
-                KeyValues kvs_in, kvs_out;
+            std::string line;
+            std::hash<std::string> hash_fn;
+            KeyValues kvs_in, kvs_out;
 
-                while(in.tellg() < fr._end && std::getline(in, line)) {
-                    kvs_in.clear();
-                    kvs_out.clear();
+            while(in.tellg() < fr._end && std::getline(in, line)) {
+                kvs_in.clear();
+                kvs_out.clear();
 
-                    mr->parse(line, kvs_in);
-                    mr->map(kvs_in, kvs_out);
+                mr->parse(line, kvs_in);
+                mr->map(kvs_in, kvs_out);
 
-                    for(auto& kv : kvs_out) {
-                        size_t reducer = hash_fn(kv._key) % config._reducers;
-                        pipes[reducer]->put(kv);
-                    }
-
+                for(auto& kv : kvs_out) {
+                    size_t reducer = hash_fn(kv._key) % config._reducers;
+                    pipes[reducer]->put(kv);
                 }
-            })
+
+            }
+        })
         );
     }
 
     for(size_t n = 0; n < config._reducers; ++n) {
         reducers.push_back(
-            std::thread([n, &mr, &config, &pipes, &pipe]() {
-                KeyValue kv;
-                std::vector<KeyValue> data;
-                while(pipes[n]->get(kv))
-                    data.push_back(kv);
+        std::thread([n, &mr, &config, &pipes, &pipe]() {
+            KeyValue kv;
+            std::vector<KeyValue> data;
+            while(pipes[n]->get(kv))
+                data.push_back(kv);
 
-                std::sort(data.begin(), data.end(), [](const KeyValue& a, const KeyValue& b){ return a._key < b._key; });
+            std::sort(data.begin(), data.end(), [](const KeyValue& a, const KeyValue& b) {
+                return a._key < b._key;
+            });
 
-                KeyValues kvs_in, kvs_out;
+            KeyValues kvs_in, kvs_out;
 
-                auto it_start = data.begin();
-                while(it_start != data.end()) {
-                    auto it_end = it_start;
-                    while(++it_end != data.end())
-                        if(it_start->_key != it_end->_key)
-                            break;
+            auto it_start = data.begin();
+            while(it_start != data.end()) {
+                auto it_end = it_start;
+                while(++it_end != data.end())
+                    if(it_start->_key != it_end->_key)
+                        break;
 
-                    kvs_in.clear();
-                    kvs_out.clear();
-                    
-                    std::copy(it_start, it_end, std::back_inserter(kvs_in));
-                    it_start = it_end;
+                kvs_in.clear();
+                kvs_out.clear();
 
-                    mr->reduce(kvs_in, kvs_out);
+                std::copy(it_start, it_end, std::back_inserter(kvs_in));
+                it_start = it_end;
 
-                    for(auto& kv : kvs_out)
-                        pipe->put(kv);
-                }
+                mr->reduce(kvs_in, kvs_out);
 
-            })
+                for(auto& kv : kvs_out)
+                    pipe->put(kv);
+            }
+
+        })
         );
     }
 

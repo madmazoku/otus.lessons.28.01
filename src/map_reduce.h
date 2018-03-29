@@ -1,38 +1,15 @@
 #pragma once
 
 #include <boost/property_tree/ptree.hpp>
-#include <string>
 #include <vector>
 #include <thread>
 
-struct KeyValue {
-    std::string _key;
-    std::string _value;
-
-    KeyValue() : _key(""), _value("") {}
-    KeyValue(const std::string& key, const std::string& value = std::string{""}) : _key(key), _value(value) {}
-    KeyValue(const KeyValue& kv) : _key(kv._key), _value(kv._value) {}
-    KeyValue(KeyValue&& kv) : _key(std::move(kv._key)), _value(std::move(kv._value)) {}
-
-    KeyValue& operator=(const KeyValue& kv) {
-        _key = kv._key;
-        _value = kv._value;
-        return *this;
-    }
-    KeyValue& operator=(KeyValue&& kv) {
-        std::swap(_key, kv._key);
-        std::swap(_value, kv._value);
-        return *this;
-    }
-};
-
-std::ostream& operator<<(std::ostream& out, const KeyValue& kv ) {
-    out << "{ '" << kv._key << "', '" << kv._value << "' }";
-}
+#include "key_value.h"
 
 using KeyValues = std::vector<KeyValue>;
 
-class IMapReduce {
+class IMapReduce
+{
 public:
     virtual ~IMapReduce() = default;
 
@@ -46,7 +23,8 @@ public:
     virtual void reduce(const KeyValues& kvs_in, KeyValues& kvs_out) = 0;
 };
 
-class MR_count : public IMapReduce {
+class MR_count : public IMapReduce
+{
 public:
     virtual ~MR_count() = default;
 
@@ -68,7 +46,8 @@ public:
     }
 };
 
-class MR_uniq_shorts : public IMapReduce {
+class MR_uniq_shorts : public IMapReduce
+{
 public:
     virtual ~MR_uniq_shorts() = default;
 
@@ -93,7 +72,8 @@ public:
     }
 };
 
-class MR_shortest : public IMapReduce {
+class MR_shortest : public IMapReduce
+{
 public:
     virtual ~MR_shortest() = default;
 
@@ -111,7 +91,7 @@ public:
     virtual void reduce(const KeyValues& kvs_in, KeyValues& kvs_out) final {
         auto it_s = kvs_in.begin();
         auto it = it_s;
-        while(++it != kvs_in.end()) 
+        while(++it != kvs_in.end())
             if(it->_value.size() < it_s->_value.size())
                 it_s = it;
         kvs_out.push_back(*it_s);

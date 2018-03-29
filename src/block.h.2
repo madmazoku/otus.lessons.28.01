@@ -1,0 +1,241 @@
+#pragma once
+
+#include <memory>
+#include <vector>
+#include <string>
+#include <fstream>
+#include <exception>
+#include <thread>
+
+#include "pipe.h"
+#include "key_value.h"
+#include "utils.h"
+
+class Setup {
+public:
+    size_t _max_pipe_buffer_size;
+
+    Setup() : _max_pipe_buffer_size(100) {}
+
+    static Setup& get() {
+        static Setup setup;
+        return setup;
+    }
+};
+
+template<typename T>
+class Channel {
+public:
+    Pipe<T> _pipe;
+    std::thread _thread;
+
+    Channel() : _pipe(Setup::get()._max_pipe_buffer_size) {}
+    Channel(const Channel&) = delete;
+    Channel(Channel&&) = default;
+};
+
+template<typename T>
+using ChannelPtr = std::unique_ptr<Channel<T>>;
+
+template<typename T>
+using ChannelPtrs = std::vector<ChannelPtr<T>>;
+
+template<typename T>
+using ChannelPtrsPtr = std::shared_ptr<ChannelPtrs<T>>;
+/*
+template<typename TIn, typename TOut>
+class Block {
+public:
+    using Self = Block<TIn, TOut>;
+
+    ChannelPtrs<TIn> _ins;
+
+    Block(size_t inputs) {
+        for(size_t n = 0; n < inputs; ++n)
+            _ins.push_back(std::make_unique<Channel<TIn>>());
+    }
+
+    virtual ~Block() = default;
+
+    virtual void validate( ChannelPtrs<TOut>& outs) = 0;
+
+    virtual void process(size_t n, ChannelPtrs<TOut>& outs) = 0;
+
+    void run(ChannelPtrs<TOut>& outs) {
+        validate(outs);
+
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_thread = std::thread([this, n, &outs](){
+                process(n, outs);
+            });
+    }
+    void finish() {
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_pipe.finish();
+    }
+    void join() {
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_thread.join();
+    }
+};
+*/
+
+template<typename TIn>
+class BlockLast {
+public:
+    using Self = Block<TIn, TOut>;
+
+    ChannelPtrs<TIn> _ins;
+
+    BlockLast(size_t inputs) {
+        for(size_t n = 0; n < inputs; ++n)
+            _ins.push_back(std::make_unique<Channel<TIn>>());
+    }
+
+    virtual ~BlockLast() = default;
+
+    virtual void process(size_t n) = 0;
+
+    void run() {
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_thread = std::thread([this, n](){
+                process(n);
+            });
+    }
+    void finish() {
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_pipe.finish();
+    }
+    void join() {
+        for(size_t n = 0; n < _ins.size(); ++n)
+            _ins[n]->_thread.join();
+    }
+};
+
+template<typename TIn, typename TOut>
+class Block : public BlockLast<TIn> {
+public:
+    using Self = Block<TIn, TOut>;
+
+    ChannelPtrs<TOut>& _outs;
+
+    Block(size_t inputs) : BlockLast<TIn>(inputs) {
+    }
+
+    virtual ~Block() = default;
+
+    virtual void validate( ChannelPtrs<TOut>& outs) = 0;
+
+    void attach(ChannelPtrs<TOut>& outs) {
+        validate(outs);
+        _outs = outs;
+    }
+
+};
+
+class BSplitFile : public Block<std::string, FileRange> {
+public:
+    BSplitFile() : Self(1) {
+    }
+
+    virtual ~BSplitFile() = default;
+
+    virtual void validate(ChannelPtrs<FileRange>& outs) {
+    }
+
+    virtual void process(size_t n, ChannelPtrs<FileRange>& outs) {
+        std::string file_name;
+        while(_ins[n]->_pipe.get(file_name)) {
+            FileRanges frs = split_file(file_name, outs.size());
+            for(size_t n = 0; n < frs.size(); ++n)
+                outs[n]->_pipe.put(frs[n]);
+        }
+    }
+};
+
+class BReadFile : public Block<FileRange, std::string> {
+public:
+    BReadFile(size_t inputs) : Self(inputs) {
+    }
+
+    virtual ~BReadFile() = default;
+
+    virtual void validate(ChannelPtrs<std::string>& outs) {
+        if(_ins.size() != outs.size())
+            throw std::runtime_error("ins and outs must have equal channels count for BReadFile");
+    }
+
+    virtual void process(size_t n, ChannelPtrs<std::string>& outs) {
+        FileRange fr;
+        while(_ins[n]->_pipe.get(fr)) {
+            std::ifstream in(fr._file_name, std::ifstream::binary);
+            in.seekg(fr._start);
+
+            std::string line;
+            while(in.tellg() < fr._end && std::getline(in, line))
+                outs[n]->_pipe.put(line);
+        }
+    }
+};
+
+/*
+class BConvertToKV : public Block<std::string> {
+public:
+}
+
+class BProcess : public Block<KeyValue> {
+public:
+};
+
+class BShard : public Block<KeyValue> {
+public:
+};
+
+class BSort : public Block<KeyValue> {
+public:
+};
+
+class BSequence : public Block<KeyValue> {
+public:
+};
+
+class BConvertFromKV : public Block<KeyValue> {
+public:
+}
+*/
+
+class BSink : public Block<std::string, std::string> {
+public:
+    BSink(size_t channels) : Self(channels) {
+    }
+
+    virtual void validate(ChannelPtrs<std::string>& outs) {
+        if(1 != outs.size())
+            throw std::runtime_error("outs must have exactly 1 channel for BSink");
+    }
+
+    virtual void process(size_t n, ChannelPtrs<std::string>& outs) {
+        std::string line;
+        while(_ins[n]->_pipe.get(line))
+            outs[0]->_pipe.put(line);
+    }
+
+};
+
+class BWriteFile : public Block<std::string> {
+public:
+    std::ostream& out;
+    BWriteFile(std::ostream& out) : Block<std::string>(1), _file_name(file_name) {
+    }
+
+    virtual void validate(ChannelPtrs<std::string>& outs) {
+        if(1 != outs.size())
+            throw std::runtime_error("outs must have exactly 0 channels for BWriteFile");
+    }
+
+    virtual void process(size_t n, ChannelPtrs<std::string>& outs) {
+        std::string line;
+        while(_ins[n]._pipe.get(line))
+            _out << line << "\n";
+    }
+};

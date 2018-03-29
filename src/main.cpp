@@ -1,49 +1,102 @@
-
-#include <iostream>
 #include "../bin/version.h"
 
-#include <tuple>
-#include <algorithm>
+#include <string>
+#include <iostream>
+#include <chrono>
 
-#include "utils.h"
-#include "config.h"
-#include "script.h"
-
-#include "pipe.h"
-
-#include <thread>
-#include <functional>
-#include <memory>
-
-#include "map_reduce_stage.h"
+#include "block.h"
+#include "shortest_uniq.h"
 
 int main(int argc, char** argv)
 {
-    if(argc < 2) {
-        std::cout << "Usage " << argv[0] << " config.json" << std::endl;
-        std::cout << "\tWhere config.json have fields: " << std::endl;
-        std::cout << "\t\tsrc - source data file, string, required" << std::endl;
-        std::cout << "\t\tdst - destination data file, string, required" << std::endl;
-        std::cout << "\t\ttmp - directory for temporary files, string, optional, default '/tmp'" << std::endl;
-        std::cout << "\t\tmapreduce - setups for map-reduce code, array of objects, required" << std::endl;
-        std::cout << "\t\t\ttype - type of map-reduce code, string, required" << std::endl;
-        std::cout << "\t\tmappers - number of mapper threads, integer, optional, default 10" << std::endl;
-        std::cout << "\t\treducers - number of reduce threads, integer, optional, default 10" << std::endl;
-        return 0;
+    if(argc != 4) {
+        std::cout << "Usage " << argv[0] << " src M R" << std::endl;
+        return 1;
     }
 
-    Config config(argv[1]);
+    std::string src  = argv[1];
+    size_t M = std::atol(argv[2]);
+    size_t R = std::atol(argv[3]);
 
-    std::cout << "config:" << std::endl;
-    std::cout << "\tsrc: " << config._src << std::endl;
-    std::cout << "\tdst: " << config._dst << std::endl;
-    std::cout << "\ttmp: " << config._tmp << std::endl;
-    std::cout << "\tmappers: " << config._mappers << std::endl;
-    std::cout << "\treducers: " << config._reducers << std::endl;
-    std::cout << "\tstages: " << config._stages.size() << std::endl;
+    // allocate blocks
+    BSplitFile split_file;
+    BReadFile read_file(M);
+    BConvertToKV convert_to_kv(M);
 
-    for(size_t n = 0; n < config._stages.size(); ++n)
-        map_reduce_stage(config, n);
+    shortest_uniq::BP1m bp1m(M);
+
+    BShard shard1(M);
+    BSort sort1(R);
+    shortest_uniq::BP2r bp2r(R);
+
+    BShard shard2(R);
+    BSort sort2(R);
+    shortest_uniq::BP3r bp3r(R);
+
+    BConvertFromKV convert_from_kv(R);
+    BSink sink(R);
+    BWriteFile write_file(std::cout);
+
+    // attach blocks
+    split_file.attach(read_file._ins);
+    read_file.attach(convert_to_kv._ins);
+    convert_to_kv.attach(bp1m._ins);
+
+    bp1m.attach(shard1._ins);
+
+    shard1.attach(sort1._ins);
+    sort1.attach(bp2r._ins);
+    bp2r.attach(shard2._ins);
+
+    shard2.attach(sort2._ins);
+    sort2.attach(bp3r._ins);
+    bp3r.attach(convert_from_kv._ins);
+
+    convert_from_kv.attach(sink._ins);
+    sink.attach(write_file._ins);
+
+    // run blocks
+    split_file.run();
+    read_file.run();
+    convert_to_kv.run();
+
+    bp1m.run();
+
+    shard1.run();
+    sort1.run();
+    bp2r.run();
+
+    shard2.run();
+    sort2.run();
+    bp3r.run();
+
+    convert_from_kv.run();
+    sink.run();
+    write_file.run();
+
+    // initiate procesing
+    split_file._ins[0]->_pipe.put(src);
+
+    // wait for blocks to finish processing
+    split_file.done();
+    read_file.done();
+    convert_to_kv.done();
+
+    bp1m.done();
+
+    shard1.done();
+    sort1.done();
+    bp2r.done();
+
+    shard2.done();
+    sort2.done();
+    bp3r.done();
+
+    convert_from_kv.done();
+    sink.done();
+
+    write_file.finish();
+    write_file.join();
 
     return 0;
 
