@@ -6,6 +6,7 @@
 #include <fstream>
 #include <exception>
 #include <thread>
+#include <algorithm>
 
 #include "pipe.h"
 #include "key_value.h"

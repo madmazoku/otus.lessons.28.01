@@ -32,6 +32,8 @@ struct KeyValue {
 
 };
 
+using KeyValues = std::vector<KeyValue>;
+
 std::ostream& operator<<(std::ostream& out, const KeyValue& kv )
 {
     out << "{ '" << kv._key << "', '" << kv._value << "' }";
