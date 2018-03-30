@@ -3,8 +3,6 @@
 #include <vector>
 #include <fstream>
 
-#include "map_reduce.h"
-
 struct FileRange {
     std::string _file_name;
     size_t _start;
