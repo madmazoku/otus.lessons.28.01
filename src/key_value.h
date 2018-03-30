@@ -25,7 +25,7 @@ struct KeyValue {
         return *this;
     }
 
-    bool operator<(const KeyValue kv)
+    bool operator<(const KeyValue kv) const
     {
         return _key < kv._key;
     }
