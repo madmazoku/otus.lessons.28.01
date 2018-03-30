@@ -49,7 +49,7 @@ public:
     size_t put_count()
     {
         std::lock_guard<std::mutex>  lock_ts(_ts_mutex);
-        return _get_count;
+        return _put_count;
     }
 
     size_t get_count()

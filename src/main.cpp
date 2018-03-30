@@ -19,23 +19,23 @@ int main(int argc, char** argv)
     size_t R = std::atol(argv[3]);
 
     // allocate blocks
-    BSplitFile split_file;
-    BReadFile read_file(M);
-    BConvertToKV convert_to_kv(M);
+    BSplitFile split_file("s01.split_file");
+    BReadFile read_file("s02.read_file",M);
+    BConvertToKV convert_to_kv("s03.convert_to_kv",M);
 
-    shortest_uniq::BP1m bp1m(M);
+    shortest_uniq::BP1m bp1m("s04.bp1m", M);
 
-    BShard shard1(M);
-    BSort sort1(R);
-    shortest_uniq::BP2r bp2r(R);
+    BShard shard1("s05.shard", M);
+    BSort sort1("s06.sort", R);
+    shortest_uniq::BP2r bp2r("s07.bp2r",R);
 
-    BShard shard2(R);
-    BSort sort2(R);
-    shortest_uniq::BP3r bp3r(R);
+    BShard shard2("s08.shard",R);
+    BSort sort2("s09.sort",R);
+    shortest_uniq::BP3r bp3r("s10.bp3r", R);
 
-    BConvertFromKV convert_from_kv(R);
-    BSink sink(R);
-    BWriteFile write_file(std::cout);
+    BConvertFromKV convert_from_kv("s11.convert_from_kv",R);
+    BSink sink("s12.sink",R);
+    BWriteFile write_file("s13.write_file", std::cout);
 
     // attach blocks
     split_file.attach(read_file._ins);

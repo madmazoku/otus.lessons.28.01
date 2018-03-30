@@ -10,13 +10,20 @@
 #include "pipe.h"
 #include "key_value.h"
 #include "utils.h"
+#include "metrics.h"
 
 class Setup
 {
 public:
     size_t _max_pipe_buffer_size;
+    Metrics _metrics;
 
     Setup() : _max_pipe_buffer_size(100) {}
+    ~Setup()
+    {
+        std::ofstream out("metrics.txt");
+        _metrics.dump("ymr", out);
+    }
 
     static Setup& get()
     {
@@ -49,9 +56,10 @@ class BlockLast
 public:
     using Self = BlockLast<TIn>;
 
+    std::string _tag;
     ChannelPtrs<TIn> _ins;
 
-    BlockLast(size_t inputs)
+    BlockLast(const std::string tag, size_t inputs) : _tag(tag)
     {
         for(size_t n = 0; n < inputs; ++n)
             _ins.push_back(std::make_unique<Channel<TIn>>());
@@ -63,20 +71,37 @@ public:
 
     void run()
     {
-        for(size_t n = 0; n < _ins.size(); ++n)
+        for(size_t n = 0; n < _ins.size(); ++n) {
             _ins[n]->_thread = std::thread([this, n]() {
-            process(n);
-        });
+                process(n);
+            });
+        }
     }
     void finish()
     {
-        for(size_t n = 0; n < _ins.size(); ++n)
+        metrics_t m;
+        size_t writed = 0;
+        for(size_t n = 0; n < _ins.size(); ++n) {
             _ins[n]->_pipe.finish();
+            size_t writed_n = _ins[n]->_pipe.put_count();
+            writed += writed_n;
+            m[_tag + "." + std::to_string(n) + ".writed"] = writed_n;
+        }
+        m[_tag + ".writed"] = writed;
+        Setup::get()._metrics.update(m);
     }
     void join()
     {
-        for(size_t n = 0; n < _ins.size(); ++n)
+        metrics_t m;
+        size_t readed = 0;
+        for(size_t n = 0; n < _ins.size(); ++n) {
             _ins[n]->_thread.join();
+            size_t readed_n = _ins[n]->_pipe.get_count();
+            readed += readed_n;
+            m[_tag + "." + std::to_string(n) + ".readed"] = readed_n;
+        }
+        m[_tag + ".readed"] = readed;
+        Setup::get()._metrics.update(m);
     }
 };
 
@@ -88,7 +113,7 @@ public:
 
     ChannelPtrs<TOut>* _outs;
 
-    Block(size_t inputs) : BlockLast<TIn>(inputs), _outs(nullptr)
+    Block(const std::string tag, size_t inputs) : BlockLast<TIn>(tag, inputs), _outs(nullptr)
     {
     }
 
@@ -113,12 +138,26 @@ public:
         BlockLast<TIn>::join();
         detach();
     }
+
+    void update_metrics(size_t n, size_t get_count, size_t put_count)
+    {
+        if(!BlockLast<TIn>::_tag.empty()) {
+            metrics_t m;
+            std::string prefix = BlockLast<TIn>::_tag;
+            m[prefix + ".get_count"] = get_count;
+            m[prefix + ".put_count"] = put_count;
+            prefix += "." + std::to_string(n);
+            m[prefix + ".get_count"] = get_count;
+            m[prefix + ".put_count"] = put_count;
+            Setup::get()._metrics.update(m);
+        }
+    }
 };
 
 class BSplitFile : public Block<std::string, FileRange>
 {
 public:
-    BSplitFile() : Self(1)
+    BSplitFile(const std::string tag) : Self(tag, 1)
     {
     }
 
@@ -130,19 +169,25 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
         std::string file_name;
         while(_ins[n]->_pipe.get(file_name)) {
+            ++get_count;
             FileRanges frs = split_file(file_name, _outs->size());
-            for(size_t n = 0; n < frs.size(); ++n)
+            for(size_t n = 0; n < frs.size(); ++n) {
                 (*_outs)[n]->_pipe.put(frs[n]);
+                ++put_count;
+            }
         }
+        update_metrics(n, get_count, put_count);
     }
 };
 
 class BReadFile : public Block<FileRange, std::string>
 {
 public:
-    BReadFile(size_t inputs) : Self(inputs)
+    BReadFile(const std::string tag, size_t inputs) : Self(tag, inputs)
     {
     }
 
@@ -156,22 +201,28 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
         FileRange fr;
         while(_ins[n]->_pipe.get(fr)) {
+
             std::ifstream in(fr._file_name, std::ifstream::binary);
             in.seekg(fr._start);
 
             std::string line;
-            while(in.tellg() < fr._end && std::getline(in, line))
+            while(in.tellg() < fr._end && std::getline(in, line)) {
                 (*_outs)[n]->_pipe.put(line);
+                ++put_count;
+            }
         }
+        update_metrics(n, get_count, put_count);
     }
 };
 
 class BConvertToKV : public Block<std::string, KeyValue>
 {
 public:
-    BConvertToKV(size_t channels) : Self(channels)
+    BConvertToKV(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -185,16 +236,22 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
         std::string line;
-        while(_ins[n]->_pipe.get(line))
+        while(_ins[n]->_pipe.get(line)) {
+            ++get_count;
             (*_outs)[n]->_pipe.put(KeyValue(line));
+            ++put_count;
+        }
+        update_metrics(n, get_count, put_count);
     }
 };
 
 class BProcess : public Block<KeyValue, KeyValue>
 {
 public:
-    BProcess(size_t channels) : Self(channels)
+    BProcess(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -217,7 +274,7 @@ public:
 class BShard : public Block<KeyValue, KeyValue>
 {
 public:
-    BShard(size_t channels) : Self(channels)
+    BShard(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -231,16 +288,39 @@ public:
     {
         std::hash<std::string> hash_fn;
 
+        size_t get_count = 0;
+        size_t put_count = 0;
+        std::vector<size_t> put_count_m(_outs->size(), 0);
+
         KeyValue kv;
-        while(_ins[n]->_pipe.get(kv))
-            (*_outs)[hash_fn(kv._key) % _outs->size()]->_pipe.put(kv);
+        while(_ins[n]->_pipe.get(kv)) {
+            ++get_count;
+            size_t m = hash_fn(kv._key) % _outs->size();
+            (*_outs)[m]->_pipe.put(kv);
+            ++put_count;
+            ++put_count_m[m];
+        }
+        update_metrics(n, get_count, put_count);
+
+        if(!_tag.empty()) {
+            metrics_t m;
+
+            for(size_t i = 0; i < put_count_m.size(); ++i)
+                m[_tag + ".to." + std::to_string(i) + ".put_count"] = put_count_m[i];
+
+            std::string prefix = _tag + "." + std::to_string(n);
+            for(size_t i = 0; i < put_count_m.size(); ++i)
+                m[prefix + ".to." + std::to_string(i) + ".put_count"] = put_count_m[i];
+
+            Setup::get()._metrics.update(m);
+        }
     }
 };
 
 class BSort : public Block<KeyValue, KeyValue>
 {
 public:
-    BSort(size_t channels) : Self(channels)
+    BSort(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -254,20 +334,27 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
         KeyValues kvs;
         KeyValue kv;
-        while(_ins[n]->_pipe.get(kv))
+        while(_ins[n]->_pipe.get(kv)) {
+            ++get_count;
             kvs.push_back(kv);
+        }
         std::sort(kvs.begin(), kvs.end());
-        for(auto it = kvs.begin(); it != kvs.end(); ++it)
+        for(auto it = kvs.begin(); it != kvs.end(); ++it) {
             (*_outs)[n]->_pipe.put(*it);
+            ++put_count;
+        }
+        update_metrics(n, get_count, put_count);
     }
 };
 
 class BSequence : public Block<KeyValue, KeyValue>
 {
 public:
-    BSequence(size_t channels) : Self(channels)
+    BSequence(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -281,12 +368,34 @@ public:
     {
         std::hash<std::string> hash_fn;
 
+        size_t get_count = 0;
+        size_t put_count = 0;
+        std::vector<size_t> put_count_m(_outs->size(), 0);
+
         KeyValue kv;
-        size_t cnt = 0;
+        size_t m = 0;
         while(_ins[n]->_pipe.get(kv)) {
-            (*_outs)[cnt]->_pipe.put(kv);
-            if(++cnt == _outs->size())
-                cnt = 0;
+            ++get_count;
+            (*_outs)[m]->_pipe.put(kv);
+            ++put_count;
+            ++put_count_m[m];
+
+            if(++m == _outs->size())
+                m = 0;
+        }
+        update_metrics(n, get_count, put_count);
+
+        if(!_tag.empty()) {
+            metrics_t m;
+
+            for(size_t i = 0; i < put_count_m.size(); ++i)
+                m[_tag + ".to." + std::to_string(i) + ".put_count"] = put_count_m[i];
+
+            std::string prefix = _tag + "." + std::to_string(n);
+            for(size_t i = 0; i < put_count_m.size(); ++i)
+                m[prefix + ".to." + std::to_string(i) + ".put_count"] = put_count_m[i];
+
+            Setup::get()._metrics.update(m);
         }
     }
 };
@@ -294,7 +403,7 @@ public:
 class BConvertFromKV : public Block<KeyValue, std::string>
 {
 public:
-    BConvertFromKV(size_t channels) : Self(channels)
+    BConvertFromKV(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -308,20 +417,26 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
+
         KeyValue kv;
         while(_ins[n]->_pipe.get(kv)) {
+            ++get_count = 0;
             std::string line = kv._key;
             if(!kv._value.empty())
                 line += '\t' + kv._value;
             (*_outs)[n]->_pipe.put(line);
+            ++put_count;
         }
+        update_metrics(n, get_count, put_count);
     }
 };
 
 class BSink : public Block<std::string, std::string>
 {
 public:
-    BSink(size_t channels) : Self(channels)
+    BSink(const std::string tag, size_t channels) : Self(tag, channels)
     {
     }
 
@@ -335,9 +450,16 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
+        size_t put_count = 0;
+
         std::string line;
-        while(_ins[n]->_pipe.get(line))
+        while(_ins[n]->_pipe.get(line)) {
+            ++get_count;
             (*_outs)[0]->_pipe.put(line);
+            ++put_count;
+        }
+        update_metrics(n, get_count, put_count);
     }
 
 };
@@ -346,7 +468,7 @@ class BWriteFile : public BlockLast<std::string>
 {
 public:
     std::ostream& _out;
-    BWriteFile(std::ostream& out) : Self(1), _out(out)
+    BWriteFile(const std::string tag, std::ostream& out) : Self(tag, 1), _out(out)
     {
     }
 
@@ -360,8 +482,18 @@ public:
 
     virtual void process(size_t n)
     {
+        size_t get_count = 0;
         std::string line;
-        while(_ins[n]->_pipe.get(line))
+        while(_ins[n]->_pipe.get(line)) {
+            ++get_count;
             _out << line << "\n";
+        }
+        if(!_tag.empty()) {
+            metrics_t m;
+            m[_tag + ".get_count"] = get_count;
+            std::string prefix = _tag + "." + std::to_string(n);
+            m[prefix + ".get_count"] = get_count;
+            Setup::get()._metrics.update(m);
+        }
     }
 };

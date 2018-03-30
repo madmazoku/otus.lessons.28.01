@@ -35,7 +35,7 @@ FileRanges split_file(const std::string& file_name, size_t N)
     while(start < file_size) {
         size_t length = (file_size - start) / --n;
         if(length == 0)
-            length = file_size - start;
+            length = 1;
 
         FileRange fr(file_name, start, start + length);
 
