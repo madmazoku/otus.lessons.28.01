@@ -205,6 +205,13 @@ public:
         if(_ins.size() != outs.size())
             throw std::runtime_error("ins and outs must have equal channels count for BProcess");
     }
+
+    virtual void process(size_t n)
+    {
+        process(n, _ins[n]->_pipe, (*_outs)[n]->_pipe);
+    }
+
+    virtual void process(size_t n, Pipe<KeyValue>& in, Pipe<KeyValue>& out) = 0;
 };
 
 class BShard : public Block<KeyValue, KeyValue>

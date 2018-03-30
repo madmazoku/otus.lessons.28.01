@@ -14,12 +14,12 @@ public:
 
     virtual ~BP1m() = default;
 
-    virtual void process(size_t n)
+    virtual void process(size_t n, Pipe<KeyValue>& in, Pipe<KeyValue>& out)
     {
         KeyValue kv;
-        while(_ins[n]->_pipe.get(kv)) {
+        while(in.get(kv)) {
             for(size_t m = 1; m < kv._key.size(); ++m)
-                (*_outs)[n]->_pipe.put(KeyValue(kv._key.substr(0, m), kv._key));
+                out.put(KeyValue(kv._key.substr(0, m), kv._key));
         }
     }
 };
@@ -33,20 +33,20 @@ public:
 
     virtual ~BP2r() = default;
 
-    virtual void process(size_t n)
+    virtual void process(size_t n, Pipe<KeyValue>& in, Pipe<KeyValue>& out)
     {
         KeyValue kv, kvc;
         size_t count = 0;
-        while(_ins[n]->_pipe.get(kv))
+        while(in.get(kv))
             if(count == 0 || kvc._key != kv._key) {
                 if(count == 1)
-                    (*_outs)[n]->_pipe.put(KeyValue(kv._value, kv._key));
+                    out.put(KeyValue(kv._value, kv._key));
                 kvc = kv;
                 count = 1;
             } else
                 ++count;
         if(count == 1)
-            (*_outs)[n]->_pipe.put(KeyValue(kv._value, kv._key));
+            out.put(KeyValue(kv._value, kv._key));
     }
 };
 
@@ -59,18 +59,18 @@ public:
 
     virtual ~BP3r() = default;
 
-    virtual void process(size_t n)
+    virtual void process(size_t n, Pipe<KeyValue>& in, Pipe<KeyValue>& out)
     {
         KeyValue kv, kvc;
-        while(_ins[n]->_pipe.get(kv))
+        while(in.get(kv))
             if(kvc._key.empty() || kvc._key != kv._key) {
                 if(!kvc._key.empty())
-                    (*_outs)[n]->_pipe.put(kvc);
+                    out.put(kvc);
                 kvc = kv;
             } else if(kvc._value.size() > kv._value.size())
                 kvc = kv;
         if(!kvc._key.empty())
-            (*_outs)[n]->_pipe.put(kvc);
+            out.put(kvc);
     }
 };
 
