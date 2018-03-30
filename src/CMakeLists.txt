@@ -2,9 +2,9 @@
 cmake_minimum_required(VERSION 3.2)
 
 if(DEFINED ENV{TRAVIS_BUILD_NUMBER})
-    project(mapreduce VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
+    project(ymr VERSION 0.0.$ENV{TRAVIS_BUILD_NUMBER})
 else()
-    project(mapreduce VERSION 0.0.1)
+    project(ymr VERSION 0.0.1)
     set(CMAKE_BUILD_TYPE Debug)
 endif()
 
@@ -35,32 +35,32 @@ enable_testing()
 # local
 configure_file(in.version.h version.h)
 
-add_executable(mapreduce main.cpp ${MYLUA_SRCS})
+add_executable(ymr main.cpp)
 
-add_executable(mapreduce_test test.cpp)
+add_executable(ymr_test test.cpp)
 
-set_target_properties(mapreduce mapreduce_test PROPERTIES
+set_target_properties(ymr ymr_test PROPERTIES
     CXX_STANDARD 14
     CXX_STANDARD_REQUIRED ON
     COMPILE_OPTIONS -Wpedantic -Wall -Wextra
 )
 
-set_target_properties(mapreduce mapreduce_test PROPERTIES
+set_target_properties(ymr ymr_test PROPERTIES
     COMPILE_DEFINITIONS BOOST_TEST_STATIC_LINK
     INCLUDE_DIRECTORIES ${Boost_INCLUDE_DIR}
 )
 
-target_link_libraries(mapreduce
-    ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT} lua5.2
-)
-
-target_link_libraries(mapreduce_test
+target_link_libraries(ymr
     ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT}
 )
 
-install(TARGETS mapreduce
+target_link_libraries(ymr_test
+    ${Boost_LIBRARIES} ${CMAKE_THREAD_LIBS_INIT}
+)
+
+install(TARGETS ymr
     RUNTIME DESTINATION bin
     LIBRARY DESTINATION lib
 )
     
-add_test(mapreduce mapreduce_test)
+add_test(ymr ymr_test)

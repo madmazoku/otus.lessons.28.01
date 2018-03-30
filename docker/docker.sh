@@ -1,6 +1,6 @@
 echo ========= Build docker image
-docker build -t otus.lessons.22.01 .
-echo ========= Execute async
-perl -e 'print "cmd$_\n" foreach 1..10;' | docker run --rm -i otus.lessons.22.01 async_cli 4
+docker build -t otus.lessons.28.01 .
+echo ========= Execute ymr
+docker run --rm -i otus.lessons.28.01 ./ymr ../data/test.in.txt 7 5
 echo ========= Remove docker image
-docker rmi otus.lessons.22.01
+docker rmi otus.lessons.28.01

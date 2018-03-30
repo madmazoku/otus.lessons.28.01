@@ -83,7 +83,7 @@ public:
             ++get_count;
             if(kvc._key.empty() || kvc._key != kv._key) {
                 if(!kvc._key.empty()) {
-                    out.put(kvc);
+                    out.put(KeyValue(kvc._value, kvc._key));
                     ++put_count;
                 }
                 kvc = kv;
@@ -91,7 +91,7 @@ public:
                 kvc = kv;
         }
         if(!kvc._key.empty()) {
-            out.put(kvc);
+            out.put(KeyValue(kvc._value, kvc._key));
             ++put_count;
         }
         update_metrics(n, get_count, put_count);
