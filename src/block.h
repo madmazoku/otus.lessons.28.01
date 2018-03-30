@@ -70,7 +70,7 @@ public:
     BlockLast(const std::string tag, size_t inputs) : _tag(tag)
     {
         for(size_t n = 0; n < inputs; ++n)
-            _ins.push_back(std::make_unique<Channel<TIn>>());
+            _ins.push_back(make_unique<Channel<TIn>>());
     }
 
     virtual ~BlockLast() = default;
